@@ -45,7 +45,8 @@ class TwoPassCompiler:
             elif kind == 'MISMATCH':
                 raise RuntimeError(f'{value!r} unexpected on line {line_num}')
             elif kind == 'ID' and value in self.keywords:  # Check if the ID is a keyword
-                self.instructions.append(('KEYWORD', value))
+                self.instructions.append((value.upper(), value))
+                #self.instructions.append(('KEYWORD', value))
             else:
                 self.instructions.append((kind, value))
         print("Parsed Instructions: ", self.instructions)
@@ -55,10 +56,13 @@ class TwoPassCompiler:
 
     # Second pass: Generate Python code from the intermediate instructions
     def second_pass(self):
-        assembly_instructions = []  # List to store assembly instructions
-        register_counter = 0  # Counter to allocate registers
-        current_lhs = None  # Tracks the left-hand side variable being assigned
-        rhs_stack = []  # Stack to evaluate the right-hand side expression
+        assembly_instructions = []
+        register_counter = 0
+        label_counter = 0
+        token_stack = []
+        current_keyword = None
+        current_lhs = None  # To track variable assignment
+        rhs_stack = []      # To process RHS expressions
 
         def allocate_register():
             nonlocal register_counter
@@ -66,42 +70,131 @@ class TwoPassCompiler:
             register_counter += 1
             return reg
 
-        for kind, value in self.instructions:
-            if kind == 'ID':  # Variable names
-                if current_lhs is None:
-                    current_lhs = value  # Assign LHS when it's empty
+        def generate_label():
+            nonlocal label_counter
+            label = f"L{label_counter}"
+            label_counter += 1
+            return label
+
+        def handle_if(tokens):
+            print(tokens)
+            tokens.reverse()  # Reverse to process right-to-left
+            lhs, operator, rhs = None, None, None
+
+            while tokens:
+                token_kind, token_value = tokens.pop()
+                if token_kind == 'ID' or token_kind == 'NUMBER':
+                    reg = allocate_register()
+                    if token_kind == 'ID':
+                        assembly_instructions.append(f"LOAD {reg}, {token_value}")
+                    else:
+                        assembly_instructions.append(f"LOAD {reg}, #{token_value}")
+
+                    if lhs is None:
+                        lhs = reg
+                    else:
+                        rhs = reg
+                elif token_kind in ['GT', 'LT', 'EQ']:
+                    # operator = token_value
+                    operator = token_kind
+                elif token_kind in ['LPAREN', 'RPAREN']:
+                    continue
                 else:
-                    rhs_stack.append(value)  # Add to the RHS stack
-            elif kind == 'ASSIGN':  # Assignment operator
-                assembly_instructions.append(f"; Assigning value to {current_lhs}")
-            elif kind == 'NUMBER':  # Numbers in expressions
-                reg = allocate_register()
-                assembly_instructions.append(f"LOAD {reg}, #{value}")
-                rhs_stack.append(reg)
-            elif kind in ['PLUS', 'MINUS', 'MUL', 'DIV']:  # Arithmetic operators
-                rhs_stack.append(kind)  # Push operator to the RHS stack
-            elif kind == 'NEWLINE':  # End of a statement
-                if current_lhs and rhs_stack:
-                    # Evaluate the RHS expression
-                    while len(rhs_stack) > 1:
-                        operand1 = rhs_stack.pop(0)  # First operand
-                        operator = rhs_stack.pop(0)  # Operator
-                        operand2 = rhs_stack.pop(0)  # Second operand
+                    raise ValueError(f"Unexpected token in 'if' condition: {token_kind}")
 
-                        # Map operator to assembly mnemonic
-                        op_map = {'PLUS': 'ADD', 'MINUS': 'SUB', 'MUL': 'MUL', 'DIV': 'DIV'}
-                        assembly_operator = op_map[operator]
+            if not (lhs and operator and rhs):
+                raise ValueError("Incomplete condition in 'if' statement.")
 
-                        # Perform the operation
-                        assembly_instructions.append(f"{assembly_operator} {operand1}, {operand2}")
-                        rhs_stack.insert(0, operand1)  # Result remains in the first operand register
+            op_map = {'GT': 'CMP_GT', 'LT': 'CMP_LT', 'EQ': 'CMP_EQ'}
+            assembly_operator = op_map.get(operator)
+            if not assembly_operator:
+                raise ValueError(f"Unsupported operator in 'if': {operator}")
 
-                    # Final result is in the last register
-                    final_register = rhs_stack.pop()
-                    assembly_instructions.append(f"STORE {current_lhs}, {final_register}")
-                    current_lhs = None  # Reset for the next assignment
+            end_label = generate_label()
+            assembly_instructions.append(f"{assembly_operator} {lhs}, {rhs}")
+            assembly_instructions.append(f"JUMP_IF_FALSE {end_label}")
+            return end_label
+
+        # Define keyword handlers
+        keyword_handlers = {
+            'IF': handle_if,
+        }
+
+        def process_rhs():
+            """Process the RHS stack into assembly instructions."""
+            while len(rhs_stack) > 1:
+                operand1 = rhs_stack.pop(0)
+                operator = rhs_stack.pop(0)
+                operand2 = rhs_stack.pop(0)
+
+                op_map = {'PLUS': 'ADD', 'MINUS': 'SUB', 'MUL': 'MUL', 'DIV': 'DIV'}
+                if operator not in op_map:
+                    raise ValueError(f"Invalid operator: {operator}")
+
+                assembly_operator = op_map[operator]
+                temp_reg = allocate_register()
+                assembly_instructions.append(f"{assembly_operator} {operand1}, {operand2}")
+                rhs_stack.insert(0, temp_reg)  # Push result back as operand
+
+            if rhs_stack:
+                return rhs_stack.pop(0)
+            return None
+
+        # Main loop to process instructions
+        for kind, value in self.instructions:
+            if kind in keyword_handlers:
+                # Process the previous keyword if a new one starts
+                if current_keyword:
+                    keyword_handlers[current_keyword](token_stack)
+                    token_stack = []
+
+                current_keyword = kind  # Start handling the new keyword
+            elif kind == 'NEWLINE':
+                if current_keyword:
+                    keyword_handlers[current_keyword](token_stack)
+                    current_keyword = None
+                    token_stack = []
+                elif current_lhs:
+                    # Finalize variable assignment
+                    final_value = process_rhs()
+                    if final_value:
+                        assembly_instructions.append(f"STORE {current_lhs}, {final_value}")
+                    current_lhs = None
+            elif current_keyword:
+                # Collect tokens for the current keyword
+                token_stack.append((kind, value))
+            else:
+                # Handle non-keyword instructions
+                if kind == 'ID':  # Variable names
+                    if current_lhs is None:
+                        current_lhs = value  # Assign LHS
+                    else:
+                        rhs_stack.append(value)  # Add to RHS stack
+                elif kind == 'ASSIGN':  # Assignment operator
+                    assembly_instructions.append(f"; Assigning value to {current_lhs}")
+                elif kind == 'NUMBER':  # Numbers
+                    reg = allocate_register()
+                    assembly_instructions.append(f"LOAD {reg}, #{value}")
+                    rhs_stack.append(reg)
+                elif kind in ['PLUS', 'MINUS', 'MUL', 'DIV']:  # Operators
+                    rhs_stack.append(kind)
+
+        # Handle any remaining keyword or variable assignment
+        if current_keyword:
+            keyword_handlers[current_keyword](token_stack)
+        elif current_lhs:
+            final_value = process_rhs()
+            if final_value:
+                assembly_instructions.append(f"STORE {current_lhs}, {final_value}")
 
         return "\n".join(assembly_instructions)
+
+
+
+
+
+
+
 
 
 
@@ -126,10 +219,11 @@ class TwoPassCompiler:
 
 # Example usage
 if __name__ == '__main__':
-    code = """
-    x = 8
-    y = x + 9 
-    """
+    code = """ 
+        x = 8
+        y = 7
+        if (x > y)"""
+
     
     compiler = TwoPassCompiler()
     compiled_code = compiler.compile(code)
