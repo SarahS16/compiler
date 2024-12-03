@@ -55,66 +55,58 @@ class TwoPassCompiler:
 
     # Second pass: Generate Python code from the intermediate instructions
     def second_pass(self):
-        current_assignment = []  # For assignments like x = 9
-        condition = []  # For conditions like x < y
-        action = []  # For actions inside the if statement
+        assembly_instructions = []  # List to store assembly instructions
+        register_counter = 0  # Counter to allocate registers
+        current_lhs = None  # Tracks the left-hand side variable being assigned
+        rhs_stack = []  # Stack to evaluate the right-hand side expression
+
+        def allocate_register():
+            nonlocal register_counter
+            reg = f"R{register_counter}"
+            register_counter += 1
+            return reg
 
         for kind, value in self.instructions:
             if kind == 'ID':  # Variable names
-                if self.in_if_block:
-                    condition.append(value)  # Add to condition for the if statement
-                elif current_assignment:
-                    current_assignment.append(value)  # Add to the assignment
+                if current_lhs is None:
+                    current_lhs = value  # Assign LHS when it's empty
                 else:
-                    current_assignment = [value]  # Start a new assignment
+                    rhs_stack.append(value)  # Add to the RHS stack
             elif kind == 'ASSIGN':  # Assignment operator
-                current_assignment.append('=')
+                assembly_instructions.append(f"; Assigning value to {current_lhs}")
             elif kind == 'NUMBER':  # Numbers in expressions
-                if self.in_if_block:
-                    condition.append(value)  # Add to condition if inside an if block
-                else:
-                    current_assignment.append(value)  # Add to the assignment
-            elif kind in ['PLUS', 'MINUS', 'MUL', 'DIV', 'LT', 'GT', 'EQ']:  # Operators
-                if self.in_if_block:
-                    condition.append(value)  # Add to condition if inside an if block
-                else:
-                    current_assignment.append(value)  # Add to the assignment
-            elif kind == 'IF':  # If condition
-                self.in_if_block = True
-                self.code_lines.append(self._get_indentation() + "if ", end="")
-                self.indentation_level += 1  # Increase indentation level for block
-            elif kind == 'LPAREN':  # Left Parenthesis for condition
-                if self.in_if_block:
-                    condition.append('(')
-            elif kind == 'RPAREN':  # Right Parenthesis for condition
-                if self.in_if_block:
-                    condition.append(')')
-            elif kind == 'NEWLINE':  # Newline means we complete an assignment or block
-                if current_assignment:
-                    self.code_lines.append(self._get_indentation() + "".join(current_assignment))
-                    current_assignment = []  # Reset for the next assignment
-                elif condition:
-                    # Add condition to the if statement
-                    self.if_conditions.append("".join(condition))
-                    self.code_lines.append(self._get_indentation() + "if " + "".join(condition) + ":")
-                    self.in_if_block = False  # End if block
-                    condition = []  # Reset condition for the next statement
-                    self.indentation_level -= 1  # Decrease indentation level after block
-                if action:
-                    self.if_actions.append("".join(action))
-                    action = []  # Reset the action after it is stored
+                reg = allocate_register()
+                assembly_instructions.append(f"LOAD {reg}, #{value}")
+                rhs_stack.append(reg)
+            elif kind in ['PLUS', 'MINUS', 'MUL', 'DIV']:  # Arithmetic operators
+                rhs_stack.append(kind)  # Push operator to the RHS stack
+            elif kind == 'NEWLINE':  # End of a statement
+                if current_lhs and rhs_stack:
+                    # Evaluate the RHS expression
+                    while len(rhs_stack) > 1:
+                        operand1 = rhs_stack.pop(0)  # First operand
+                        operator = rhs_stack.pop(0)  # Operator
+                        operand2 = rhs_stack.pop(0)  # Second operand
 
-        # Handle any remaining assignment or condition at the end
-        if current_assignment:
-            self.code_lines.append(self._get_indentation() + " ".join(current_assignment))
-        if condition:
-            self.code_lines.append(self._get_indentation() + " ".join(condition))
-        
-        # Insert dynamic actions inside the if block based on collected conditions
-        for action in self.if_actions:
-            self.code_lines.append(self._get_indentation() + action)
-        
-        return "\n".join(self.code_lines)
+                        # Map operator to assembly mnemonic
+                        op_map = {'PLUS': 'ADD', 'MINUS': 'SUB', 'MUL': 'MUL', 'DIV': 'DIV'}
+                        assembly_operator = op_map[operator]
+
+                        # Perform the operation
+                        assembly_instructions.append(f"{assembly_operator} {operand1}, {operand2}")
+                        rhs_stack.insert(0, operand1)  # Result remains in the first operand register
+
+                    # Final result is in the last register
+                    final_register = rhs_stack.pop()
+                    assembly_instructions.append(f"STORE {current_lhs}, {final_register}")
+                    current_lhs = None  # Reset for the next assignment
+
+        return "\n".join(assembly_instructions)
+
+
+
+
+
 
     def _get_indentation(self):
         return "    " * self.indentation_level  # Generates indentation based on the level
@@ -134,7 +126,10 @@ class TwoPassCompiler:
 
 # Example usage
 if __name__ == '__main__':
-    code = "if (x > y) y = 42"
+    code = """
+    x = 8
+    y = x + 9 
+    """
     
     compiler = TwoPassCompiler()
     compiled_code = compiler.compile(code)
