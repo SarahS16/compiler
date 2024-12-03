@@ -8,26 +8,28 @@ class TwoPassCompiler:
         self.indentation_level = 0  # Tracks the level of indentation (e.g., inside an if block)
         self.if_conditions = []  # Stores the conditions for the if statement
         self.if_actions = []  # Stores actions inside the if statement
+        self.keywords = {'if', 'else', 'while', 'for', 'def', 'class', 'return'}  # Add Python keywords here
 
     # First pass: Tokenization and parsing into intermediate representation
+
     def first_pass(self, code):
         token_specification = [
-            ('NUMBER',    r'\d+'),       # Integer number
-            ('ASSIGN',    r'='),        # Assignment operator
-            ('ID',        r'[A-Za-z]+'), # Variable names
-            ('PLUS',      r'\+'),        # Plus sign
-            ('MINUS',     r'-'),         # Minus sign
-            ('MUL',       r'\*'),        # Multiplication sign
-            ('DIV',       r'/'),         # Division sign
-            ('LT',        r'<'),         # Less than operator
-            ('GT',        r'>'),         # Greater than operator
-            ('EQ',        r'='),         # Equal to operator
-            ('IF',        r'if'),        # If keyword
-            ('LPAREN',    r'\('),        # Left Parenthesis
-            ('RPAREN',    r'\)'),        # Right Parenthesis
-            ('NEWLINE',   r'\n'),        # Newline
-            ('SKIP',      r'[ \t]+'),    # Skip over spaces and tabs
-            ('MISMATCH',  r'.'),         # Any other character
+            ('NUMBER', r'\d+'),                      # Integer number
+            ('ASSIGN', r'='),                       # Assignment operator
+            ('ID', r'[A-Za-z_][A-Za-z0-9_]*'),      # Identifier
+            ('PLUS', r'\+'),                        # Plus sign
+            ('MINUS', r'-'),                        # Minus sign
+            ('MUL', r'\*'),                         # Multiplication sign
+            ('DIV', r'/'),                          # Division sign
+            ('LT', r'<'),                           # Less than operator
+            ('GT', r'>'),                           # Greater than operator
+            ('EQ', r'=='),                          # Equal to operator
+            ('GEQ',r'>='),                          # Greater than equal to operator
+            ('LPAREN', r'\('),                      # Left Parenthesis
+            ('RPAREN', r'\)'),                      # Right Parenthesis
+            ('NEWLINE', r'\n'),                     # Newline
+            ('SKIP', r'[ \t]+'),                    # Skip spaces and tabs
+            ('MISMATCH', r'.'),                     # Any other character
         ]
         tok_regex = '|'.join(f'(?P<{pair[0]}>{pair[1]})' for pair in token_specification)
         line_num = 1
@@ -35,15 +37,21 @@ class TwoPassCompiler:
         for mo in re.finditer(tok_regex, code):
             kind = mo.lastgroup
             value = mo.group()
-            if kind == 'NEWLINE':
-                line_start = mo.end()
+            if kind == 'NEWLINE':  # Recognize and append newlines
+                self.instructions.append((kind, value))
                 line_num += 1
             elif kind == 'SKIP':
                 pass
             elif kind == 'MISMATCH':
                 raise RuntimeError(f'{value!r} unexpected on line {line_num}')
+            elif kind == 'ID' and value in self.keywords:  # Check if the ID is a keyword
+                self.instructions.append(('KEYWORD', value))
             else:
                 self.instructions.append((kind, value))
+        print("Parsed Instructions: ", self.instructions)
+
+
+
 
     # Second pass: Generate Python code from the intermediate instructions
     def second_pass(self):
@@ -115,19 +123,19 @@ class TwoPassCompiler:
     def compile(self, code):
         # Perform the first pass: Tokenization and parsing
         self.first_pass(code)
+        
         # Perform the second pass: Code generation
         python_code = self.second_pass()
+        
+        # Print the generated Python code
+        print("Generated Python Code:\n", python_code)
         return python_code
 
 
 # Example usage
 if __name__ == '__main__':
-    code = '''
-    x = 8
-    y = 10
-    if (x < y) x = x + 8
-    '''
+    code = "if (x > y) y = 42"
     
     compiler = TwoPassCompiler()
     compiled_code = compiler.compile(code)
-    print("Generated Python code: ", compiled_code)
+
