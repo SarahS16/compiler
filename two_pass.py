@@ -8,7 +8,7 @@ class TwoPassCompiler:
         self.indentation_level = 0  # Tracks the level of indentation (e.g., inside an if block)
         self.if_conditions = []  # Stores the conditions for the if statement
         self.if_actions = []  # Stores actions inside the if statement
-        self.keywords = {'if', 'else', 'while', 'for', 'def', 'class', 'return'}  # Add Python keywords here
+        self.keywords = {'if', 'else', 'while'}  #Python keywords
 
     # First pass: Tokenization and parsing into intermediate representation
 
@@ -28,8 +28,6 @@ class TwoPassCompiler:
             ('LPAREN', r'\('),                      # Left Parenthesis
             ('RPAREN', r'\)'),                      # Right Parenthesis
             ('NEWLINE', r'\n'),                     # Newline
-            ('SKIP', r'[ \t]+'),                    # Skip spaces and tabs
-            ('MISMATCH', r'.'),                     # Any other character
         ]
         tok_regex = '|'.join(f'(?P<{pair[0]}>{pair[1]})' for pair in token_specification)
         line_num = 1
@@ -45,11 +43,11 @@ class TwoPassCompiler:
             elif kind == 'MISMATCH':
                 raise RuntimeError(f'{value!r} unexpected on line {line_num}')
             elif kind == 'ID' and value in self.keywords:  # Check if the ID is a keyword
-                self.instructions.append((value.upper(), value))
-                #self.instructions.append(('KEYWORD', value))
+                #self.instructions.append((value.upper(), value))
+                self.instructions.append(('KEYWORD', value))
             else:
                 self.instructions.append((kind, value))
-        print("Parsed Instructions: ", self.instructions)
+        print("Token Stream: ", self.instructions)
 
 
 
@@ -117,7 +115,7 @@ class TwoPassCompiler:
 
         # Define keyword handlers
         keyword_handlers = {
-            'IF': handle_if,
+            'if': handle_if,
         }
 
         def process_rhs():
@@ -142,13 +140,20 @@ class TwoPassCompiler:
 
         # Main loop to process instructions
         for kind, value in self.instructions:
-            if kind in keyword_handlers:
-                # Process the previous keyword if a new one starts
-                if current_keyword:
-                    keyword_handlers[current_keyword](token_stack)
-                    token_stack = []
+            print(f"kind: {kind} value: {value}")
+            # if kind in keyword_handlers:
+            #     # Process the previous keyword if a new one starts
+            #     if current_keyword:
+            #         keyword_handlers[current_keyword](token_stack)
+            #         token_stack = []
 
-                current_keyword = kind  # Start handling the new keyword
+            #     current_keyword = kind  # Start handling the new keyword
+            if kind == 'KEYWORD':
+                if value in keyword_handlers:
+                    if current_keyword:
+                        keyword_handlers[current_keyword](token_stack)
+                        token_stack = []
+                    current_keyword = value
             elif kind == 'NEWLINE':
                 if current_keyword:
                     keyword_handlers[current_keyword](token_stack)
@@ -219,12 +224,17 @@ class TwoPassCompiler:
 
 # Example usage
 if __name__ == '__main__':
-    code = """ 
-        x = 8
-        y = 7
-        if (x > y)"""
+    # code = """ 
+    #     x = 9
+    #     y = x + 9
+    #     """
+    # code2 = """
+    #     x = 9
+    #     if (x > 7)
+    # """
+    code3 = """ x = 10 + 7 """
 
     
     compiler = TwoPassCompiler()
-    compiled_code = compiler.compile(code)
+    compiled_code = compiler.compile(code3)
 
