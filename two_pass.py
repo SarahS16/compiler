@@ -43,7 +43,6 @@ class TwoPassCompiler:
             elif kind == 'MISMATCH':
                 raise RuntimeError(f'{value!r} unexpected on line {line_num}')
             elif kind == 'ID' and value in self.keywords:  # Check if the ID is a keyword
-                #self.instructions.append((value.upper(), value))
                 self.instructions.append(('KEYWORD', value))
             else:
                 self.instructions.append((kind, value))
@@ -52,7 +51,7 @@ class TwoPassCompiler:
 
 
 
-    # Second pass: Generate Python code from the intermediate instructions
+    # Second pass: Generate Assembly code from the intermediate instructions
     def second_pass(self):
         assembly_instructions = []
         register_counter = 0
@@ -93,7 +92,6 @@ class TwoPassCompiler:
                     else:
                         rhs = reg
                 elif token_kind in ['GT', 'LT', 'EQ']:
-                    # operator = token_value
                     operator = token_kind
                 elif token_kind in ['LPAREN', 'RPAREN']:
                     continue
@@ -130,24 +128,18 @@ class TwoPassCompiler:
                     raise ValueError(f"Invalid operator: {operator}")
 
                 assembly_operator = op_map[operator]
-                temp_reg = allocate_register()
-                assembly_instructions.append(f"{assembly_operator} {operand1}, {operand2}")
-                rhs_stack.insert(0, temp_reg)  # Push result back as operand
+                temp_reg = operand1  # Use operand1 as the destination to avoid unnecessary allocation
+                assembly_instructions.append(f"{assembly_operator} {temp_reg}, {operand2}")
+                rhs_stack.insert(0, temp_reg)  # Push result back as the single remaining operand
 
             if rhs_stack:
-                return rhs_stack.pop(0)
+                return rhs_stack.pop(0)  # Final register holding the RHS value
             return None
+
 
         # Main loop to process instructions
         for kind, value in self.instructions:
             print(f"kind: {kind} value: {value}")
-            # if kind in keyword_handlers:
-            #     # Process the previous keyword if a new one starts
-            #     if current_keyword:
-            #         keyword_handlers[current_keyword](token_stack)
-            #         token_stack = []
-
-            #     current_keyword = kind  # Start handling the new keyword
             if kind == 'KEYWORD':
                 if value in keyword_handlers:
                     if current_keyword:
@@ -224,15 +216,22 @@ class TwoPassCompiler:
 
 # Example usage
 if __name__ == '__main__':
-    # code = """ 
-    #     x = 9
-    #     y = x + 9
-    #     """
-    # code2 = """
-    #     x = 9
-    #     if (x > 7)
-    # """
-    code3 = """ x = 10 + 7 """
+    code = "x = 9"
+    code2 = "x = 10 + 7"
+    code3 = """ 
+        x = 9
+        y = x + 9
+        """
+    code4 = """
+        x = 9
+        if (x > 7)
+            y = 12
+    """
+    # Error generation
+    ecode3 = """
+        x = 9
+        if 
+    """
 
     
     compiler = TwoPassCompiler()
